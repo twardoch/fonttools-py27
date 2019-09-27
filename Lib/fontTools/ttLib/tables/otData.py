@@ -397,16 +397,16 @@ otData = [
 		('LOffset', 'ExtSubTable', None, None, 'Offset to SubTable'),
 	]),
 
-	('ValueRecord', [
-		('int16', 'XPlacement', None, None, 'Horizontal adjustment for placement-in design units'),
-		('int16', 'YPlacement', None, None, 'Vertical adjustment for placement-in design units'),
-		('int16', 'XAdvance', None, None, 'Horizontal adjustment for advance-in design units (only used for horizontal writing)'),
-		('int16', 'YAdvance', None, None, 'Vertical adjustment for advance-in design units (only used for vertical writing)'),
-		('Offset', 'XPlaDevice', None, None, 'Offset to Device table for horizontal placement-measured from beginning of PosTable (may be NULL)'),
-		('Offset', 'YPlaDevice', None, None, 'Offset to Device table for vertical placement-measured from beginning of PosTable (may be NULL)'),
-		('Offset', 'XAdvDevice', None, None, 'Offset to Device table for horizontal advance-measured from beginning of PosTable (may be NULL)'),
-		('Offset', 'YAdvDevice', None, None, 'Offset to Device table for vertical advance-measured from beginning of PosTable (may be NULL)'),
-	]),
+#	('ValueRecord', [
+#		('int16', 'XPlacement', None, None, 'Horizontal adjustment for placement-in design units'),
+#		('int16', 'YPlacement', None, None, 'Vertical adjustment for placement-in design units'),
+#		('int16', 'XAdvance', None, None, 'Horizontal adjustment for advance-in design units (only used for horizontal writing)'),
+#		('int16', 'YAdvance', None, None, 'Vertical adjustment for advance-in design units (only used for vertical writing)'),
+#		('Offset', 'XPlaDevice', None, None, 'Offset to Device table for horizontal placement-measured from beginning of PosTable (may be NULL)'),
+#		('Offset', 'YPlaDevice', None, None, 'Offset to Device table for vertical placement-measured from beginning of PosTable (may be NULL)'),
+#		('Offset', 'XAdvDevice', None, None, 'Offset to Device table for horizontal advance-measured from beginning of PosTable (may be NULL)'),
+#		('Offset', 'YAdvDevice', None, None, 'Offset to Device table for vertical advance-measured from beginning of PosTable (may be NULL)'),
+#	]),
 
 	('AnchorFormat1', [
 		('uint16', 'AnchorFormat', None, None, 'Format identifier-format = 1'),
@@ -970,7 +970,7 @@ otData = [
 
 	('VarData', [
 		('uint16', 'ItemCount', None, None, ''),
-		('uint16', 'NumShorts', None, None, ''), # Automatically computed
+		('uint16', 'NumShorts', None, None, ''),
 		('uint16', 'VarRegionCount', None, None, ''),
 		('uint16', 'VarRegionIndex', 'VarRegionCount', 0, ''),
 		('VarDataValue', 'Item', 'ItemCount', 0, ''),
@@ -1445,8 +1445,7 @@ otData = [
         ]),
 
 	('InsertionMorph', [
-		('struct', 'StateHeader', None, None, 'Header.'),
-		# TODO: Add missing parts.
+		('STXHeader(InsertionMorphAction)', 'StateTable', None, None, 'Finite-state transducer for glyph insertion.'),
 	]),
 
 	('MorphClass', [
@@ -1511,6 +1510,33 @@ otData = [
 		('int16', 'Top', None, None, 'Control point index for the top-side optical edge, or -1 if this glyph has none.'),
 		('int16', 'Right', None, None, 'Control point index for the right-side optical edge, or -1 if this glyph has none.'),
 		('int16', 'Bottom', None, None, 'Control point index for the bottom-side optical edge, or -1 if this glyph has none.'),
+	]),
+
+	#
+	# TSIC
+	#
+	('TSIC', [
+		('Version', 'Version', None, None, 'Version of table initially set to 0x00010000.'),
+		('uint16', 'Flags', None, None, 'TSIC flags - set to 0'),
+		('uint16', 'AxisCount', None, None, 'Axis count from fvar'),
+		('uint16', 'RecordCount', None, None, 'TSIC record count'),
+		('uint16', 'Reserved', None, None, 'Set to 0'),
+		('Tag', 'AxisArray', 'AxisCount', 0, 'Array of axis tags in fvar order'),
+		('LocationRecord', 'RecordLocations', 'RecordCount', 0, 'Location in variation space of TSIC record'),
+		('TSICRecord', 'Record', 'RecordCount', 0, 'Array of TSIC records'),
+	]),
+
+	('LocationRecord', [
+		('F2Dot14', 'Axis', 'AxisCount', 0, 'Axis record'),
+	]),
+
+	('TSICRecord', [
+		('uint16', 'Flags', None, None, 'Record flags - set to 0'),
+		('uint16', 'NumCVTEntries', None, None, 'Number of CVT number value pairs'),
+		('uint16', 'NameLength', None, None, 'Length of optional user record name'),
+		('uint16', 'NameArray', 'NameLength', 0, 'Unicode 16 name'),
+		('uint16', 'CVTArray', 'NumCVTEntries', 0, 'CVT number array'),
+		('int16', 'CVTValueArray', 'NumCVTEntries', 0, 'CVT value'),
 	]),
 
 ]

@@ -12,6 +12,7 @@ from fontTools import ttLib, cffLib
 from fontTools.ttLib.tables import otTables, _h_e_a_d
 from fontTools.ttLib.tables.DefaultTable import DefaultTable
 from fontTools.misc.loggingTools import Timer
+from fontTools.pens.recordingPen import DecomposingRecordingPen
 from functools import reduce
 import sys
 import time
@@ -225,6 +226,23 @@ ttLib.getTableClass('hhea').mergeMap = {
 	'numberOfHMetrics': recalculate,
 }
 
+ttLib.getTableClass('vhea').mergeMap = {
+	'*': equal,
+	'tableTag': equal,
+	'tableVersion': max,
+	'ascent': max,
+	'descent': min,
+	'lineGap': max,
+	'advanceHeightMax': max,
+	'minTopSideBearing': min,
+	'minBottomSideBearing': min,
+	'yMaxExtent': max,
+	'caretSlopeRise': first,
+	'caretSlopeRun': first,
+	'caretOffset': first,
+	'numberOfVMetrics': recalculate,
+}
+
 os2FsTypeMergeBitMap = {
 	'size': 16,
 	'*': lambda bit: 0,
@@ -351,10 +369,29 @@ ttLib.getTableClass('fpgm').mergeMap = lambda self, lst: first(lst)
 ttLib.getTableClass('cvt ').mergeMap = lambda self, lst: first(lst)
 ttLib.getTableClass('gasp').mergeMap = lambda self, lst: first(lst) # FIXME? Appears irreconcilable
 
+def _glyphsAreSame(glyphSet1, glyphSet2, glyph1, glyph2):
+	pen1 = DecomposingRecordingPen(glyphSet1)
+	pen2 = DecomposingRecordingPen(glyphSet2)
+	g1 = glyphSet1[glyph1]
+	g2 = glyphSet2[glyph2]
+	g1.draw(pen1)
+	g2.draw(pen2)
+	return (pen1.value == pen2.value and
+		g1.width == g2.width and
+		(not hasattr(g1, 'height') or g1.height == g2.height))
+
+# Valid (format, platformID, platEncID) triplets for cmap subtables containing
+# Unicode BMP-only and Unicode Full Repertoire semantics.
+# Cf. OpenType spec for "Platform specific encodings":
+# https://docs.microsoft.com/en-us/typography/opentype/spec/name
+class CmapUnicodePlatEncodings:
+	BMP = {(4, 3, 1), (4, 0, 3), (4, 0, 4), (4, 0, 6)}
+	FullRepertoire = {(12, 3, 10), (12, 0, 4), (12, 0, 6)}
+
 @_add_method(ttLib.getTableClass('cmap'))
 def merge(self, m, tables):
 	# TODO Handle format=14.
-	# Only merges 4/3/1 and 12/3/10 subtables, ignores all other subtables
+	# Only merge format 4 and 12 Unicode subtables, ignores all other subtables
 	# If there is a format 12 table for the same font, ignore the format 4 table
 	cmapTables = []
 	for fontIdx,table in enumerate(tables):
@@ -362,10 +399,16 @@ def merge(self, m, tables):
 		format12 = None
 		for subtable in table.tables:
 			properties = (subtable.format, subtable.platformID, subtable.platEncID)
-			if properties == (4,3,1):
+			if properties in CmapUnicodePlatEncodings.BMP:
 				format4 = subtable
-			elif properties == (12,3,10):
+			elif properties in CmapUnicodePlatEncodings.FullRepertoire:
 				format12 = subtable
+			else:
+				log.warning(
+					"Dropped cmap subtable from font [%s]:\t"
+					"format %2s, platformID %2s, platEncID %2s",
+					fontIdx, subtable.format, subtable.platformID, subtable.platEncID
+				)
 		if format12 is not None:
 			cmapTables.append((format12, fontIdx))
 		elif format4 is not None:
@@ -373,19 +416,30 @@ def merge(self, m, tables):
 
 	# Build a unicode mapping, then decide which format is needed to store it.
 	cmap = {}
+	fontIndexForGlyph = {}
+	glyphSets = [None for f in m.fonts] if hasattr(m, 'fonts') else None
 	for table,fontIdx in cmapTables:
 		# handle duplicates
 		for uni,gid in table.cmap.items():
 			oldgid = cmap.get(uni, None)
 			if oldgid is None:
 				cmap[uni] = gid
+				fontIndexForGlyph[gid] = fontIdx
 			elif oldgid != gid:
 				# Char previously mapped to oldgid, now to gid.
 				# Record, to fix up in GSUB 'locl' later.
-				if m.duplicateGlyphsPerFont[fontIdx].get(oldgid, gid) == gid:
+				if m.duplicateGlyphsPerFont[fontIdx].get(oldgid) is None:
+					if glyphSets is not None:
+						oldFontIdx = fontIndexForGlyph[oldgid]
+						for idx in (fontIdx, oldFontIdx):
+							if glyphSets[idx] is None:
+								glyphSets[idx] = m.fonts[idx].getGlyphSet()
+						if _glyphsAreSame(glyphSets[oldFontIdx], glyphSets[fontIdx], oldgid, gid):
+							continue
 					m.duplicateGlyphsPerFont[fontIdx][oldgid] = gid
-				else:
-					# Char previously mapped to oldgid but already remapped to a different gid.
+				elif m.duplicateGlyphsPerFont[fontIdx][oldgid] != gid:
+					# Char previously mapped to oldgid but oldgid is already remapped to a different
+					# gid, because of another Unicode character.
 					# TODO: Try harder to do something about these.
 					log.warning("Dropped mapping from codepoint %#06X to glyphId '%s'", uni, gid)
 
@@ -459,13 +513,27 @@ def mergeScripts(lst):
 
 	if len(lst) == 1:
 		return lst[0]
-	# TODO Support merging LangSysRecords
-	assert all(not s.LangSysRecord for s in lst)
+	langSyses = {}
+	for sr in lst:
+		for lsr in sr.LangSysRecord:
+			if lsr.LangSysTag not in langSyses:
+				langSyses[lsr.LangSysTag] = []
+			langSyses[lsr.LangSysTag].append(lsr.LangSys)
+	lsrecords = []
+	for tag, langSys_list in sorted(langSyses.items()):
+		lsr = otTables.LangSysRecord()
+		lsr.LangSys = mergeLangSyses(langSys_list)
+		lsr.LangSysTag = tag
+		lsrecords.append(lsr)
 
 	self = otTables.Script()
-	self.LangSysRecord = []
-	self.LangSysCount = 0
-	self.DefaultLangSys = mergeLangSyses([s.DefaultLangSys for s in lst if s.DefaultLangSys])
+	self.LangSysRecord = lsrecords
+	self.LangSysCount = len(lsrecords)
+	dfltLangSyses = [s.DefaultLangSys for s in lst if s.DefaultLangSys]
+	if dfltLangSyses:
+		self.DefaultLangSys = mergeLangSyses(dfltLangSyses)
+	else:
+		self.DefaultLangSys = None
 	return self
 
 def mergeScriptRecords(lst):
@@ -604,6 +672,13 @@ def merge(self, m, tables):
 					synthLookup.LookupType = 1
 					synthLookup.SubTableCount = 1
 					synthLookup.SubTable = [subtable]
+					if table.table.LookupList is None:
+						# mtiLib uses None as default value for LookupList,
+						# while feaLib points to an empty array with count 0
+						# TODO: make them do the same
+						table.table.LookupList = otTables.LookupList()
+						table.table.LookupList.Lookup = []
+						table.table.LookupList.LookupCount = 0
 					table.table.LookupList.Lookup.append(synthLookup)
 					table.table.LookupList.LookupCount += 1
 
@@ -824,9 +899,9 @@ class Options(object):
 
 		return ret
 
-class _AttendanceRecordingIdentityDict(dict):
+class _AttendanceRecordingIdentityDict(object):
 	"""A dictionary-like object that records indices of items actually accessed
-		from a list."""
+	from a list."""
 
 	def __init__(self, lst):
 		self.l = lst
@@ -837,7 +912,7 @@ class _AttendanceRecordingIdentityDict(dict):
 		self.s.add(self.d[id(v)])
 		return v
 
-class _GregariousDict(dict):
+class _GregariousIdentityDict(object):
 	"""A dictionary-like object that welcomes guests without reservations and
 	adds them to the end of the guest list."""
 
@@ -851,14 +926,23 @@ class _GregariousDict(dict):
 			self.l.append(v)
 		return v
 
-class _NonhashableDict(dict):
-	"""A dictionary-like object mapping objects to their index within a list."""
+class _NonhashableDict(object):
+	"""A dictionary-like object mapping objects to values."""
 
-	def __init__(self, lst):
-		self.d = {id(v):i for i,v in enumerate(lst)}
+	def __init__(self, keys, values=None):
+		if values is None:
+			self.d = {id(v):i for i,v in enumerate(keys)}
+		else:
+			self.d = {id(k):v for k,v in zip(keys, values)}
 
-	def __getitem__(self, v):
-		return self.d[id(v)]
+	def __getitem__(self, k):
+		return self.d[id(k)]
+
+	def __setitem__(self, k, v):
+		self.d[id(k)] = v
+
+	def __delitem__(self, k):
+		del self.d[id(k)]
 
 class Merger(object):
 
@@ -890,6 +974,7 @@ class Merger(object):
 		for font in fonts:
 			self._preMerge(font)
 
+		self.fonts = fonts
 		self.duplicateGlyphsPerFont = [{} for f in fonts]
 
 		allTags = reduce(set.union, (list(font.keys()) for font in fonts), set())
@@ -919,6 +1004,7 @@ class Merger(object):
 					log.info("Dropped '%s'.", tag)
 
 		del self.duplicateGlyphsPerFont
+		del self.fonts
 
 		self._postMerge(mega)
 
@@ -997,7 +1083,7 @@ class Merger(object):
 			if t.table.FeatureList and t.table.ScriptList:
 
 				# Collect unregistered (new) features.
-				featureMap = _GregariousDict(t.table.FeatureList.FeatureRecord)
+				featureMap = _GregariousIdentityDict(t.table.FeatureList.FeatureRecord)
 				t.table.ScriptList.mapFeatures(featureMap)
 
 				# Record used features.
@@ -1017,7 +1103,7 @@ class Merger(object):
 			if t.table.LookupList:
 
 				# Collect unregistered (new) lookups.
-				lookupMap = _GregariousDict(t.table.LookupList.Lookup)
+				lookupMap = _GregariousIdentityDict(t.table.LookupList.Lookup)
 				t.table.FeatureList.mapLookups(lookupMap)
 				t.table.LookupList.mapLookups(lookupMap)
 

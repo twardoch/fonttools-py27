@@ -165,8 +165,9 @@ def test_script_extension():
 
     assert unicodedata.script_extension("\u0660") == {'Arab', 'Thaa'}
     assert unicodedata.script_extension("\u0964") == {
-        'Beng', 'Deva', 'Gran', 'Gujr', 'Guru', 'Knda', 'Mahj', 'Mlym',
-        'Orya', 'Sind', 'Sinh', 'Sylo', 'Takr', 'Taml', 'Telu', 'Tirh'}
+        'Beng', 'Deva', 'Dogr', 'Gong', 'Gonm', 'Gran', 'Gujr', 'Guru', 'Knda',
+        'Mahj', 'Mlym', 'Nand', 'Orya', 'Sind', 'Sinh', 'Sylo', 'Takr', 'Taml',
+        'Telu', 'Tirh'}
 
 
 def test_script_name():
@@ -200,7 +201,54 @@ def test_block():
     assert unicodedata.block("\x00") == "Basic Latin"
     assert unicodedata.block("\x7F") == "Basic Latin"
     assert unicodedata.block("\x80") == "Latin-1 Supplement"
-    assert unicodedata.block("\u1c90") == "No_Block"
+    assert unicodedata.block("\u1c90") == "Georgian Extended"
+    assert unicodedata.block("\u0870") == "No_Block"
+
+
+def test_ot_tags_from_script():
+    # simple
+    assert unicodedata.ot_tags_from_script("Latn") == ["latn"]
+    # script mapped to multiple new and old script tags
+    assert unicodedata.ot_tags_from_script("Deva") == ["dev2", "deva"]
+    # exceptions
+    assert unicodedata.ot_tags_from_script("Hira") == ["kana"]
+    # special script codes map to DFLT
+    assert unicodedata.ot_tags_from_script("Zinh") == ["DFLT"]
+    assert unicodedata.ot_tags_from_script("Zyyy") == ["DFLT"]
+    assert unicodedata.ot_tags_from_script("Zzzz") == ["DFLT"]
+    # this is invalid or unknown
+    assert unicodedata.ot_tags_from_script("Aaaa") == ["DFLT"]
+
+
+def test_ot_tag_to_script():
+    assert unicodedata.ot_tag_to_script("latn") == "Latn"
+    assert unicodedata.ot_tag_to_script("kana") == "Kana"
+    assert unicodedata.ot_tag_to_script("DFLT") == None
+    assert unicodedata.ot_tag_to_script("aaaa") == None
+    assert unicodedata.ot_tag_to_script("beng") == "Beng"
+    assert unicodedata.ot_tag_to_script("bng2") == "Beng"
+    assert unicodedata.ot_tag_to_script("dev2") == "Deva"
+    assert unicodedata.ot_tag_to_script("gjr2") == "Gujr"
+    assert unicodedata.ot_tag_to_script("yi  ") == "Yiii"
+    assert unicodedata.ot_tag_to_script("nko ") == "Nkoo"
+    assert unicodedata.ot_tag_to_script("vai ") == "Vaii"
+    assert unicodedata.ot_tag_to_script("lao ") == "Laoo"
+    assert unicodedata.ot_tag_to_script("yi") == "Yiii"
+
+    for invalid_value in ("", " ", "z zz", "zzzzz"):
+        with pytest.raises(ValueError, match="invalid OpenType tag"):
+            unicodedata.ot_tag_to_script(invalid_value)
+
+
+def test_script_horizontal_direction():
+    assert unicodedata.script_horizontal_direction("Latn") == "LTR"
+    assert unicodedata.script_horizontal_direction("Arab") == "RTL"
+    assert unicodedata.script_horizontal_direction("Thaa") == "RTL"
+
+    with pytest.raises(KeyError):
+        unicodedata.script_horizontal_direction("Azzz")
+    assert unicodedata.script_horizontal_direction("Azzz",
+                                                   default="LTR") == "LTR"
 
 
 if __name__ == "__main__":
