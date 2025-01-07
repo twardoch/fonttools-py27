@@ -8,6 +8,7 @@ from os.path import isfile, join as pjoin
 from glob import glob
 from setuptools import setup, find_packages, Command, Extension
 from setuptools.command.build_ext import build_ext as _build_ext
+from setuptools.errors import SetupError
 from distutils import log
 from distutils.util import convert_path
 import subprocess as sp
@@ -33,7 +34,7 @@ if {"bdist_wheel"}.intersection(sys.argv):
     setup_requires.append("wheel")
 
 if {"release"}.intersection(sys.argv):
-    setup_requires.append("bump2version")
+    setup_requires.extend(["bump2version", "readme_renderer"])
 
 try:
     __import__("cython")
@@ -46,9 +47,7 @@ env_with_cython = os.environ.get("FONTTOOLS_WITH_CYTHON")
 with_cython = (
     True
     if env_with_cython in {"1", "true", "yes"}
-    else False
-    if env_with_cython in {"0", "false", "no"}
-    else None
+    else False if env_with_cython in {"0", "false", "no"} else None
 )
 # --with-cython/--without-cython options override environment variables
 opt_with_cython = {"--with-cython"}.intersection(sys.argv)
@@ -97,7 +96,7 @@ extras_require = {
     # for fontTools.misc.etree and fontTools.misc.plistlib: use lxml to
     # read/write XML files (faster/safer than built-in ElementTree)
     "lxml": [
-        "lxml >= 4.0, < 5",
+        "lxml >= 4.0",
     ],
     # for fontTools.sfnt and fontTools.woff2: to compress/uncompress
     # WOFF 1.0 and WOFF 2.0 webfonts.
@@ -110,8 +109,7 @@ extras_require = {
     # of the Unicode Character Database instead of the built-in unicodedata
     # which varies between python versions and may be outdated.
     "unicode": [
-        # Python 3.12 will have Unicode 15.0, so the backport is not needed.
-        ("unicodedata2 >= 15.0.0; python_version <= '3.11'"),
+        ("unicodedata2 >= 15.1.0; python_version <= '3.12'"),
     ],
     # for graphite type tables in ttLib/tables (Silf, Glat, Gloc)
     "graphite": ["lz4 >= 1.7.4.2"],
@@ -121,6 +119,9 @@ extras_require = {
         # use pure-python alternative on pypy
         "scipy; platform_python_implementation != 'PyPy'",
         "munkres; platform_python_implementation == 'PyPy'",
+        # to output PDF or HTML reports. NOTE: wheels are only available for
+        # windows currently, other platforms will need to build from source.
+        "pycairo",
     ],
     # for fontTools.varLib.plot, to visualize DesignSpaceDocument and resulting
     # VariationModel
@@ -166,6 +167,7 @@ classifiers = {
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
         "Programming Language :: Python :: 3",
         "Topic :: Text Processing :: Fonts",
         "Topic :: Multimedia :: Graphics",
@@ -242,7 +244,7 @@ class release(Command):
     ]
 
     changelog_name = "NEWS.rst"
-    version_RE = re.compile("^[0-9]+\.[0-9]+")
+    version_RE = re.compile(r"^[0-9]+\.[0-9]+")
     date_fmt = "%Y-%m-%d"
     header_fmt = "%s (released %s)"
     commit_message = "Release {new_version}"
@@ -266,7 +268,19 @@ class release(Command):
             raise DistutilsOptionError("--major/--minor are mutually exclusive")
         self.part = "major" if self.major else "minor" if self.minor else None
 
+    def check_long_description_syntax(self):
+        import readme_renderer.rst
+
+        result = readme_renderer.rst.render(long_description, stream=sys.stderr)
+        if result is None:
+            raise SetupError(
+                "`long_description` has syntax errors in markup"
+                " and would not be rendered on PyPI."
+            )
+
     def run(self):
+        self.check_long_description_syntax()
+
         if self.part is not None:
             log.info("bumping '%s' version" % self.part)
             self.bumpversion(self.part, commit=False)
@@ -468,7 +482,7 @@ if ext_modules:
 
 setup_params = dict(
     name="fonttools",
-    version="4.43.2.dev0",
+    version="4.55.4.dev0",
     description="Tools to manipulate font files",
     author="Just van Rossum",
     author_email="just@letterror.com",
