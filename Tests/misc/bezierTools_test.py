@@ -3,7 +3,9 @@ from fontTools.misc.bezierTools import (
     calcQuadraticBounds,
     calcQuadraticArcLength,
     calcCubicBounds,
+    calcCubicArcLength,
     curveLineIntersections,
+    curveCurveIntersections,
     segmentPointAtT,
     splitLine,
     splitQuadratic,
@@ -142,6 +144,12 @@ def test_splitCubicAtT():
     ]
 
 
+def test_splitCubicAtT_robustness():
+    segment = ((-103, -231), (-61, -240), (-31.009, -245), (6, -245))
+    (_, tail) = splitCubicAtT(*segment, 0.386637)
+    assert tail[-1] == segment[-1]
+
+
 def test_solveCubic():
     assert solveCubic(1, 1, -6, 0) == [-3.0, -0.0, 2.0]
     assert solveCubic(-10.0, -9.0, 48.0, -29.0) == [-2.9, 1.0, 1.0]
@@ -189,3 +197,39 @@ def test_calcQuadraticArcLength():
     assert calcQuadraticArcLength(
         (210, 333), (289, 333), (326.5, 290.5)
     ) == pytest.approx(127.9225)
+
+
+@pytest.mark.parametrize(
+    "segment, expectedLength",
+    [
+        (
+            # https://github.com/fonttools/fonttools/issues/3502
+            ((377, 469), (377, 468), (377, 472), (377, 472)),  # off by one unit
+            3.32098765445,
+        ),
+        (
+            # https://github.com/fonttools/fonttools/issues/3502
+            ((242, 402), (242, 403), (242, 399), (242, 399)),  # off by one unit
+            3.32098765445,
+        ),
+        (
+            # https://github.com/fonttools/fonttools/issues/3514
+            (
+                (626.9918761593156, 1000.0),
+                (639.133178223544, 1000.0),
+                (650.1152019577394, 1000.0),
+                (626.9918761593156, 1000.0),
+            ),  # infinite recursion with Cython
+            27.06159516422008,
+        ),
+    ],
+)
+def test_calcCubicArcLength(segment, expectedLength):
+    assert calcCubicArcLength(*segment) == pytest.approx(expectedLength)
+
+
+def test_intersections_linelike():
+    seg1 = [(0.0, 0.0), (0.0, 0.25), (0.0, 0.75), (0.0, 1.0)]
+    seg2 = [(0.0, 0.5), (0.25, 0.5), (0.75, 0.5), (1.0, 0.5)]
+    pt = curveCurveIntersections(seg1, seg2)[0][0]
+    assert pt == (0.0, 0.5)

@@ -21,9 +21,9 @@ jobs:
   build_pure:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.x'
     - name: Install dependencies
@@ -32,8 +32,9 @@ jobs:
     - name: Build source distribution and pure-python wheel
       run: |
         python setup.py sdist bdist_wheel
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
+        name: pure
         path: |
           dist/*.whl
           dist/*.tar.gz
@@ -46,20 +47,24 @@ jobs:
         shell: bash
     strategy:
       fail-fast: false
+      # macos-13 runners are still x86_64, macos-14 (latest) are arm64; we want to build
+      # the x86_64 wheel on/for x86_64 macs
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: [macos-13, windows-latest, ubuntu-latest]
         arch: [auto64]
         include:
           - os: macos-latest
             arch: universal2
           - os: windows-latest
             arch: auto32
+          - os: ubuntu-24.04-arm
+            arch: aarch64
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: recursive
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.x"
     - name: Install dependencies
@@ -70,34 +75,9 @@ jobs:
       env:
         CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
         CIBW_ARCHS: ${{ matrix.arch }}
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
-        path: wheelhouse/*.whl
-
-  build_arch_wheels:
-    name: py${{ matrix.python }} on ${{ matrix.arch }}
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        # aarch64 uses qemu so it's slow, build each py version in parallel jobs
-        python: [38, 39, 310, 311, 312]
-        arch: [aarch64]
-    steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: true
-    - uses: docker/setup-qemu-action@v2.2.0
-      with:
-        platforms: all
-    - name: Install dependencies
-      run: pip install cibuildwheel
-    - name: Build Wheels
-      run: python -m cibuildwheel --output-dir wheelhouse .
-      env:
-        CIBW_BUILD: cp${{ matrix.python }}-*
-        CIBW_ARCHS: ${{ matrix.arch }}
-    - uses: actions/upload-artifact@v3
-      with:
+        name: wheels-${{ matrix.os }}-${{ matrix.arch }}
         path: wheelhouse/*.whl
 
   deploy:
@@ -106,15 +86,15 @@ jobs:
     needs:
       - build_pure
       - build_wheels
-      - build_arch_wheels
     # only run if the commit is tagged...
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4
       with:
-        name: artifact
+        # so that all artifacts are downloaded in the same directory specified by 'path'
+        merge-multiple: true
         path: dist
-    - uses: pypa/gh-action-pypi-publish@v1.8.8
+    - uses: pypa/gh-action-pypi-publish@v1.12.4
       with:
         user: __token__
         password: ${{ secrets.PYPI_PASSWORD }}
