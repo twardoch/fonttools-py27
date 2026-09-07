@@ -392,7 +392,11 @@ class ChainContextualBuilder(LookupBuilder):
         # We need to make a copy here because compiling
         # modifies the subtable (finalizing formats etc.)
         table = self.buildLookup_(copy.deepcopy(subtables))
-        w = OTTableWriter()
+        w = OTTableWriter(tableTag=self.table)
+        # This standalone lookup has no LookupList parent to set its metadata.
+        # Overflow reporting still needs a lookup name and index.
+        w.name = "Lookup"
+        w.repeatIndex = 0
         table.compile(w, self.font)
         size = len(w.getAllData())
         return size
