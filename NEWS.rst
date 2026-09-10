@@ -1,3 +1,6 @@
+4.65.0 (released 2026-09-10)
+----------------------------
+
 - [glyf] Add ``__iter__``, ``items`` and ``values`` methods to the ``glyf`` table
   to make it more dict-like (#4156).
 - [feaLib] Escape the anonymous block tag when scanning for its terminator, so tags
