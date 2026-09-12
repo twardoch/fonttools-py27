@@ -731,6 +731,20 @@ class BuilderTest(unittest.TestCase):
             "} test;",
         )
 
+    def test_STAT_elidedfallbackname_missing(self):
+        self.assertRaisesRegex(
+            FeatureLibError,
+            "STAT table requires an ElidedFallbackName or ElidedFallbackNameID",
+            self.build,
+            "table STAT {"
+            '    DesignAxis wght 0 { name "Weight"; };'
+            "    AxisValue {"
+            "        location wght 400;"
+            '        name "Regular";'
+            "    };"
+            "} STAT;",
+        )
+
     def test_STAT_elidedfallbackname_already_defined(self):
         self.assertRaisesRegex(
             FeatureLibError,
