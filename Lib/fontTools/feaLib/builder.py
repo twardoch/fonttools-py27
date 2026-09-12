@@ -673,6 +673,11 @@ class Builder(object):
                 )
         elif "ElidedFallbackName" in self.stat_:
             nameID = self.stat_["ElidedFallbackName"]
+        else:
+            raise FeatureLibError(
+                "STAT table requires an ElidedFallbackName or ElidedFallbackNameID",
+                None,
+            )
 
         otl.buildStatTable(
             self.font,
